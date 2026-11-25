@@ -12,7 +12,7 @@ repository directory. It is deterministic: the same line every run.
 import os
 import sys
 
-# The line. 103 characters. Funny on first read, punchline lands inside
+# The line. 93 characters. Funny on first read, punchline lands inside
 # the line: the watch — a gadget meant to praise *us* — is the one that
 # needed the win.
 LINE = "My smartwatch congratulated me for standing up. I was already standing. It just needed a win."
@@ -22,13 +22,32 @@ MIN_CHARS = 1
 MAX_CHARS = 200
 
 
+def _resolve_output_dir():
+    """Resolve the output directory from the environment.
+
+    Returns the directory path, or None when MAKEFUN_OUTPUT_DIR is unset
+    or blank. Kept in one place so main() stays readable.
+    """
+    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR")
+    if out_dir is None:
+        return None
+    out_dir = out_dir.strip()
+    return out_dir or None
+
+
 def _validate_entry(text):
-    """Gate check matching the kit: 1-200 chars, not only whitespace."""
+    """Gate check matching the kit: 1-200 chars, not only whitespace.
+
+    Hardened: the entry must be exactly one line, so any control
+    character (newline, carriage return, tab, NUL, ...) rejects it.
+    """
     if not isinstance(text, str):
         return False
     if not (MIN_CHARS <= len(text) <= MAX_CHARS):
         return False
     if not text.strip():
+        return False
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in text):
         return False
     return True
 
@@ -38,7 +57,7 @@ def main():
         print("entry failed validation", file=sys.stderr)
         return 0
 
-    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR")
+    out_dir = _resolve_output_dir()
     if not out_dir:
         print("MAKEFUN_OUTPUT_DIR is not set", file=sys.stderr)
         return 0
@@ -53,15 +72,17 @@ def main():
         print("could not write %s: %s" % (path, exc), file=sys.stderr)
         return 0
 
-    # Verify by read-back: what landed on disk must be exactly the line.
+    # Verify by read-back: what landed on disk must be exactly the line,
+    # and its byte length must match the UTF-8 encoding of the line.
     try:
-        with open(path, "r", encoding="utf-8") as fh:
-            written = fh.read()
-    except OSError as exc:
+        with open(path, "rb") as fh:
+            raw = fh.read()
+        written = raw.decode("utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
         print("could not read back %s: %s" % (path, exc), file=sys.stderr)
         return 0
 
-    if written != LINE:
+    if written != LINE or len(raw) != len(LINE.encode("utf-8")):
         print("read-back mismatch in %s" % path, file=sys.stderr)
         return 0
 
